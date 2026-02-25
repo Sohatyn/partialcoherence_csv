@@ -323,8 +323,11 @@ class PartialCoherenceApp(tk.Tk):
         if self.current_img is None: return
         if self.slice_line:
             try:
-                self.slice_line.remove()
-            except ValueError: pass
+                # Check if the artist is still attached to an axes
+                if self.slice_line.axes is not None:
+                    self.slice_line.remove()
+            except (ValueError, RuntimeError):
+                pass
             self.slice_line = None
             
         xmin, xmax, ymin, ymax = self.current_extent
