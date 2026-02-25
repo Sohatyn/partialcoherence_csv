@@ -6,6 +6,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 import csv
+import os
 
 # Import our backend
 import simulation
@@ -27,95 +28,119 @@ class PartialCoherenceApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Partial Coherence Imaging Simulator")
-        self.geometry("1000x800")
+        self.geometry("1400x700")
         
         # State variables
         self.current_img = None
+        self.current_mask = None
         self.current_1d = None
-        self.current_foc_list = None
-        self.current_c_list = None
-        self.current_p_list = None
-        self.current_contrast = 0.0
         self.current_extent = None
+        
+        self.custom_mask_data = None
+        self.custom_mask_filepath = None
+        
+        self.slice_dir = "X"
+        self.slice_pos_y = 0
+        self.slice_pos_x = 0
+        self.slice_line = None
+        self.dragging_slice = False
         
         self._build_ui()
         
     def _build_ui(self):
-        # Create Main Paned Window
         main_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # --- LEFT PANEL (Inputs) ---
-        left_frame = ttk.Frame(main_pane, width=650)
-        main_pane.add(left_frame, weight=1)
+        left_frame = ttk.Frame(main_pane, width=550)
+        main_pane.add(left_frame, weight=0)
         
-        # Input standard parameters
-        param_frame = ttk.LabelFrame(left_frame, text="Optical Parameters")
-        param_frame.pack(fill=tk.X, padx=5, pady=5)
+        # 1. Optical Parameters
+        opt_frame = ttk.LabelFrame(left_frame, text="Optical Parameters")
+        opt_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(param_frame, text="Wavelength λ (nm):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(opt_frame, text="Wavelength λ (nm):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
         self.var_wav = tk.StringVar(value="365.0")
-        ttk.Entry(param_frame, textvariable=self.var_wav, width=10).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Entry(opt_frame, textvariable=self.var_wav, width=10).grid(row=0, column=1, padx=5, pady=2)
         
-        ttk.Label(param_frame, text="Lens NA (0-1):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(opt_frame, text="Lens NA (0-1):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
         self.var_na = tk.StringVar(value="0.1")
-        ttk.Entry(param_frame, textvariable=self.var_na, width=10).grid(row=1, column=1, padx=5, pady=2)
+        ttk.Entry(opt_frame, textvariable=self.var_na, width=10).grid(row=1, column=1, padx=5, pady=2)
         
-        ttk.Label(param_frame, text="Illumination σ (0-1):").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(opt_frame, text="Illumin_σ (0-1):").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
         self.var_sig = tk.StringVar(value="0.8")
-        ttk.Entry(param_frame, textvariable=self.var_sig, width=10).grid(row=2, column=1, padx=5, pady=2)
-        ttk.Label(param_frame, text="Focus (um):").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Entry(opt_frame, textvariable=self.var_sig, width=10).grid(row=2, column=1, padx=5, pady=2)
+        
+        ttk.Label(opt_frame, text="Focus (um):").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
         self.var_foc = tk.StringVar(value="0.0")
-        ttk.Entry(param_frame, textvariable=self.var_foc, width=10).grid(row=3, column=1, padx=5, pady=2)
+        ttk.Entry(opt_frame, textvariable=self.var_foc, width=10).grid(row=3, column=1, padx=5, pady=2)
         
-        ttk.Label(param_frame, text="Focus Sweep ±(um):").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
-        span_frame = ttk.Frame(param_frame)
-        span_frame.grid(row=4, column=1, sticky=tk.W)
-        self.var_foc_span = tk.StringVar(value="5.0")
-        ttk.Entry(span_frame, textvariable=self.var_foc_span, width=5).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Label(span_frame, text="Step:").pack(side=tk.LEFT)
-        self.var_foc_step = tk.StringVar(value="0.5")
-        ttk.Entry(span_frame, textvariable=self.var_foc_step, width=5).pack(side=tk.LEFT, padx=(2, 0))
-
-        ttk.Label(param_frame, text="L&S Width (nm):").grid(row=5, column=0, sticky=tk.W, padx=5, pady=2)
-        lw_frame = ttk.Frame(param_frame)
-        lw_frame.grid(row=5, column=1, sticky=tk.W, padx=5, pady=2)
-        self.var_w = tk.StringVar(value="1500.0")
-        ttk.Entry(lw_frame, textvariable=self.var_w, width=7).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Label(lw_frame, text="Lines:").pack(side=tk.LEFT)
-        self.var_lines = tk.StringVar(value="5")
-        ttk.Entry(lw_frame, textvariable=self.var_lines, width=4).pack(side=tk.LEFT, padx=(2, 0))
-        
-        ttk.Label(param_frame, text="Orientation:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=2)
-        ori_frame = ttk.Frame(param_frame)
-        ori_frame.grid(row=6, column=1, sticky=tk.W)
-        self.var_ori = tk.StringVar(value="V")
-        ttk.Radiobutton(ori_frame, text="Vertical", variable=self.var_ori, value="V").pack(side=tk.LEFT)
-        ttk.Radiobutton(ori_frame, text="Horizontal", variable=self.var_ori, value="H").pack(side=tk.LEFT)
-        ttk.Radiobutton(ori_frame, text="Both", variable=self.var_ori, value="Both").pack(side=tk.LEFT)
-        
-        ttk.Label(param_frame, text="Precision:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=2)
-        prec_frame = ttk.Frame(param_frame)
-        prec_frame.grid(row=7, column=1, sticky=tk.W)
+        ttk.Label(opt_frame, text="Precision:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+        prec_frame = ttk.Frame(opt_frame)
+        prec_frame.grid(row=4, column=1, sticky=tk.W)
         self.var_prec = tk.StringVar(value="Fast")
-        ttk.Radiobutton(prec_frame, text="Fast (Rough)", variable=self.var_prec, value="Fast").pack(side=tk.LEFT)
-        ttk.Radiobutton(prec_frame, text="High (Slow)", variable=self.var_prec, value="High").pack(side=tk.LEFT)
+        ttk.Radiobutton(prec_frame, text="Fast", variable=self.var_prec, value="Fast").pack(side=tk.LEFT)
+        ttk.Radiobutton(prec_frame, text="High", variable=self.var_prec, value="High").pack(side=tk.LEFT)
+        ttk.Radiobutton(prec_frame, text="Very High", variable=self.var_prec, value="VeryHigh").pack(side=tk.LEFT)
         
-        # Zernike Parameters (Scrollable)
+        # 2. Pattern Source
+        pat_source_frame = ttk.LabelFrame(left_frame, text="Pattern Source")
+        pat_source_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.var_pat_type = tk.StringVar(value="L&S")
+        f1 = ttk.Frame(pat_source_frame)
+        f1.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Radiobutton(f1, text="Line & Space", variable=self.var_pat_type, value="L&S", command=self._toggle_pat_type).pack(side=tk.LEFT)
+        ttk.Radiobutton(f1, text="Custom File", variable=self.var_pat_type, value="Custom", command=self._toggle_pat_type).pack(side=tk.LEFT, padx=10)
+        
+        self.frame_ls = ttk.Frame(pat_source_frame)
+        ttk.Label(self.frame_ls, text="Width(nm):").pack(side=tk.LEFT)
+        self.var_w = tk.StringVar(value="1500.0")
+        we = ttk.Entry(self.frame_ls, textvariable=self.var_w, width=6)
+        we.pack(side=tk.LEFT, padx=2)
+        we.bind("<FocusOut>", lambda e: self._update_preview())
+        we.bind("<Return>", lambda e: self._update_preview())
+        
+        ttk.Label(self.frame_ls, text="Lines:").pack(side=tk.LEFT, padx=(5,0))
+        self.var_lines = tk.StringVar(value="5")
+        le = ttk.Entry(self.frame_ls, textvariable=self.var_lines, width=4)
+        le.pack(side=tk.LEFT, padx=2)
+        le.bind("<FocusOut>", lambda e: self._update_preview())
+        le.bind("<Return>", lambda e: self._update_preview())
+        
+        ttk.Label(self.frame_ls, text="Ori:").pack(side=tk.LEFT, padx=(5,0))
+        self.var_ori = tk.StringVar(value="V")
+        ttk.OptionMenu(self.frame_ls, self.var_ori, "V", "V", "H", command=self._update_preview).pack(side=tk.LEFT, padx=2)
+        
+        self.frame_custom = ttk.Frame(pat_source_frame)
+        btn_browse = ttk.Button(self.frame_custom, text="Browse...", command=self._browse_custom)
+        btn_browse.grid(row=0, column=0, padx=5, pady=2)
+        self.var_filepath = tk.StringVar(value="No file selected")
+        ttk.Label(self.frame_custom, textvariable=self.var_filepath, foreground="gray", wraplength=150).grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        ttk.Label(self.frame_custom, text="1 Cell Size(nm):").grid(row=1, column=0, sticky=tk.E, padx=5, pady=2)
+        self.var_cell_size = tk.StringVar(value="10.0")
+        ce = ttk.Entry(self.frame_custom, textvariable=self.var_cell_size, width=8)
+        ce.grid(row=1, column=1, sticky=tk.W, padx=5, pady=2)
+        ce.bind("<FocusOut>", lambda e: self._update_preview())
+        ce.bind("<Return>", lambda e: self._update_preview())
+        
+        self.var_invert = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self.frame_custom, text="Invert (0=Block[Black], 1=Pass[White])", variable=self.var_invert, command=self._update_preview).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        
+        self._toggle_pat_type()
+        
+        # 3. Zernike
         z_frame_container = ttk.LabelFrame(left_frame, text="36 Fringe Zernike Coefficients (waves)")
         z_frame_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        canvas = tk.Canvas(z_frame_container)
+        # Add an explicit width to the inner canvas to force it to spread out
+        canvas = tk.Canvas(z_frame_container, width=500)
         scrollbar = ttk.Scrollbar(z_frame_container, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
@@ -124,265 +149,276 @@ class PartialCoherenceApp(tk.Tk):
             name = ZERNIKE_NAMES.get(i, "")
             row = (i - 1) % 18
             col_base = ((i - 1) // 18) * 2
-            
-            ttk.Label(scrollable_frame, text=f"Z{i} ({name}):").grid(row=row, column=col_base, sticky=tk.E, padx=5, pady=1)
+            # Add pad and sticky settings, tighten the gap
+            ttk.Label(scrollable_frame, text=f"Z{i} ({name}):").grid(row=row, column=col_base, sticky=tk.E, padx=(5, 2), pady=1)
             e_var = tk.StringVar(value="0.0")
             e = ttk.Entry(scrollable_frame, textvariable=e_var, width=8)
-            e.grid(row=row, column=col_base+1, padx=5, pady=1)
+            e.grid(row=row, column=col_base+1, sticky=tk.W, padx=(2, 5), pady=1)
             self.zernike_entries.append(e_var)
             
-        # Action Buttons
+        # 4. Slice / App Controls
+        slice_frame = ttk.LabelFrame(left_frame, text="1D Slice Controls")
+        slice_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.var_slice_dir = tk.StringVar(value="X")
+        ttk.Radiobutton(slice_frame, text="Parallel to X-Axis (Horizontal Cut)", variable=self.var_slice_dir, value="X", command=self._update_slice_dir).pack(anchor=tk.W, padx=5)
+        ttk.Radiobutton(slice_frame, text="Parallel to Y-Axis (Vertical Cut)", variable=self.var_slice_dir, value="Y", command=self._update_slice_dir).pack(anchor=tk.W, padx=5)
+        
         btn_frame = ttk.Frame(left_frame)
-        btn_frame.pack(fill=tk.X, padx=5, pady=10)
-        ttk.Button(btn_frame, text="Run Full Simulation", command=lambda: self.run_simulation(full=True)).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Run 2D & Profile Only", command=lambda: self.run_simulation(full=False)).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Export to CSV", command=self.export_csv).pack(fill=tk.X, pady=2)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(btn_frame, text="Run Simulation", command=self.run_simulation).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="Export Profile to CSV", command=self.export_csv).pack(fill=tk.X, pady=2)
         
         self.status_var = tk.StringVar(value="Ready.")
         ttk.Label(left_frame, textvariable=self.status_var, foreground="blue").pack(anchor=tk.W, padx=5)
-        self.contrast_lbl = tk.StringVar(value="Center Contrast: N/A")
-        ttk.Label(left_frame, textvariable=self.contrast_lbl, font=("Arial", 12, "bold")).pack(anchor=tk.W, padx=5, pady=5)
         
         # --- RIGHT PANEL (Outputs) ---
         right_frame = ttk.Frame(main_pane)
         main_pane.add(right_frame, weight=3)
         
-        # Matplotlib Figures
-        self.fig = Figure(figsize=(8.5, 11), dpi=100)
-        
-        # Give more width/height balance to the top plots to avoid squishing
-        gs = self.fig.add_gridspec(3, 2, height_ratios=[1.2, 1, 1], width_ratios=[1, 1], hspace=0.35, wspace=0.25)
-        self.ax1 = self.fig.add_subplot(gs[0, 0])  # 1D Profile
-        self.ax4 = self.fig.add_subplot(gs[0, 1])  # 2D Profile
-        self.ax2 = self.fig.add_subplot(gs[1, :])  # Contrast Curve
-        self.ax3 = self.fig.add_subplot(gs[2, :])  # Heatmap
-        
+        self.fig = Figure(figsize=(12, 5), dpi=100)
+        gs = self.fig.add_gridspec(1, 3, width_ratios=[1, 1, 1], wspace=0.3)
+        self.ax_mask = self.fig.add_subplot(gs[0, 0])
+        self.ax_2d = self.fig.add_subplot(gs[0, 1])
+        self.ax_1d = self.fig.add_subplot(gs[0, 2])
         self.fig.tight_layout(pad=3.0)
-        
-        # Colorbar reference for heatmap
-        self.cbar = None
-        self.cbar_ax = None
         
         self.canvas_plot = FigureCanvasTkAgg(self.fig, master=right_frame)
         self.canvas_plot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-    def _get_inputs(self):
+        self.canvas_plot.mpl_connect('button_press_event', self._on_press)
+        self.canvas_plot.mpl_connect('button_release_event', self._on_release)
+        self.canvas_plot.mpl_connect('motion_notify_event', self._on_motion)
+        
+        # Draw initial L&S preview
+        self.after(200, self._update_preview)
+
+    def _toggle_pat_type(self):
+        if self.var_pat_type.get() == "L&S":
+            self.frame_custom.pack_forget()
+            self.frame_ls.pack(fill=tk.X, padx=5, pady=2)
+        else:
+            self.frame_ls.pack_forget()
+            self.frame_custom.pack(fill=tk.X, padx=5, pady=2)
+        self._update_preview()
+
+    def _browse_custom(self):
+        fp = filedialog.askopenfilename(filetypes=[("All Supported", "*.csv *.dat *.bmp"), ("CSV files", "*.csv"), ("DAT files", "*.dat"), ("BMP files", "*.bmp")])
+        if not fp: return
+        self.var_filepath.set(os.path.basename(fp))
+        self.custom_mask_filepath = fp
+        try:
+            self.custom_mask_data = simulation.load_custom_pattern(fp)
+            self._update_preview()
+        except Exception as e:
+            messagebox.showerror("File Load Error", str(e))
+            
+    def _update_preview(self, *args):
+        prec = self.var_prec.get()
+        if prec == "Fast": target_size = 512
+        elif prec == "High": target_size = 1024
+        else: target_size = 2048
+        
+        if self.var_pat_type.get() == "L&S":
+            try:
+                w = float(self.var_w.get())
+                num_lines = int(self.var_lines.get())
+                ori = self.var_ori.get()
+                target_field_size = 4.0 * num_lines * w
+                Nx, Ny = target_size, target_size
+                pixel_size = target_field_size / Nx
+                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, ori)
+                self.current_mask = mask
+                self._draw_mask_preview(mask, pixel_size)
+            except Exception: pass
+        elif self.var_pat_type.get() == "Custom":
+            if self.custom_mask_data is None: return
+            try:
+                cell_size = float(self.var_cell_size.get())
+                inv = self.var_invert.get()
+                mask, px_size = simulation.prepare_custom_mask(self.custom_mask_data, cell_size, inv, target_size=target_size)
+                self.current_mask = mask
+                self._draw_mask_preview(mask, px_size)
+            except Exception: pass
+            
+    def _draw_mask_preview(self, mask, px_size):
+        self.ax_mask.clear()
+        ny, nx = mask.shape
+        w_um = nx * px_size / 1000.0
+        h_um = ny * px_size / 1000.0
+        extent = [-w_um/2, w_um/2, -h_um/2, h_um/2]
+        self.ax_mask.imshow(mask, extent=extent, cmap='gray', origin='lower', vmin=0, vmax=1)
+        self.ax_mask.set_title("Mask Preview", fontsize=11)
+        self.ax_mask.set_xlabel("X (um)", fontsize=10)
+        self.ax_mask.set_ylabel("Y (um)", fontsize=10)
+        self.canvas_plot.draw_idle()
+
+    def run_simulation(self):
         try:
             wav = float(self.var_wav.get())
             na = float(self.var_na.get())
             sig = float(self.var_sig.get())
             foc_um = float(self.var_foc.get())
-            foc_span = float(self.var_foc_span.get())
-            foc_step = float(self.var_foc_step.get())
-            w = float(self.var_w.get())
-            num_lines = int(self.var_lines.get())
-            ori = self.var_ori.get()
             prec = self.var_prec.get()
             z_coeffs = np.array([float(v.get()) for v in self.zernike_entries])
-            return wav, na, sig, foc_um, foc_span, foc_step, w, num_lines, ori, prec, z_coeffs
-        except ValueError:
-            messagebox.showerror("Input Error", "Please ensure all inputs are valid numbers.")
-            return None
-
-    def run_simulation(self, full=True):
-        params = self._get_inputs()
-        if not params: return
-        wav, na, sig, foc_um, foc_span, foc_step, w, num_lines, ori, prec, z_coeffs = params
-        
-        mode_text = "full simulation" if full else "2D & Profile calculation"
-        self.status_var.set(f"Running {mode_text}... please wait.")
-        self.update()
-        
-        # Set precision points
-        if prec == "Fast":
-            num_points_single = 120
-            num_points_sweep = 50
-        else:
-            num_points_single = 250
-            num_points_sweep = 250
             
-        try:
-            # Resolution logic
-            # Scale target_field_size proportionally with num_lines so it always looks like 5 lines
-            target_field_size = 4.0 * num_lines * w
-            Nx, Ny = 512, 512
-            pixel_size = target_field_size / Nx
-            
+            pat_type = self.var_pat_type.get()
             foc_nm = foc_um * 1000.0
+            
+            if prec == "Fast":
+                num_points_single = 120
+                target_sim = 512
+            elif prec == "High":
+                num_points_single = 250
+                target_sim = 1024
+            else: # VeryHigh
+                num_points_single = 400
+                target_sim = 2048
+                
             src_single = simulation.get_source_points(na, sig, wav, num_points=num_points_single)
             
-            # Helper to run single orientation
-            def run_single_orientation(o):
-                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, o)
-                img = simulation.simulate_image(mask, na, sig, wav, foc_nm, z_coeffs, pixel_size, source_points=src_single)
-                c = simulation.calculate_contrast(img, w, pixel_size, o)
-                
-                cx, cy = Nx//2, Ny//2
-                if o == 'V':
-                    profile = img[cy, :]
-                    x_axis = (np.arange(Nx) - cx) * pixel_size
-                else:
-                    profile = img[:, cx]
-                    x_axis = (np.arange(Ny) - cy) * pixel_size
-                
-                return img, c, x_axis, profile
-                
-            # --- 1. Single Focus Simulation ---
-            if ori == "Both":
-                # Define primary view based on V
-                img_v, c_v, x_axis_v, profile_v = run_single_orientation("V")
-                img_h, c_h, x_axis_h, profile_h = run_single_orientation("H")
-                
-                self.current_img = img_v # Keep V for the 2D plot
-                self.current_contrast = {"V": c_v, "H": c_h}
-                self.contrast_lbl.set(f"Center Contrast: V={c_v:.4f}, H={c_h:.4f}")
-                self.current_1d = (x_axis_v, profile_v) # Keep V as primary 1D
+            if pat_type == "L&S":
+                w = float(self.var_w.get())
+                num_lines = int(self.var_lines.get())
+                ori = self.var_ori.get()
+                target_field_size = 4.0 * num_lines * w
+                Nx, Ny = target_sim, target_sim
+                pixel_size = target_field_size / Nx
+                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, ori)
+                self._draw_mask_preview(mask, pixel_size)
             else:
-                img, c, x_axis, profile = run_single_orientation(ori)
-                self.current_img = img
-                self.current_contrast = c
-                self.contrast_lbl.set(f"Center Contrast: {c:.4f}")
-                self.current_1d = (x_axis, profile)
-            
-            self.current_extent = [-Nx/2 * pixel_size, Nx/2 * pixel_size, -Ny/2 * pixel_size, Ny/2 * pixel_size]
-            
-            foc_um_list, c_list, p_list = [], [], []
-            c_list_h, p_list_h = [], []
-
-            # --- 2. Through-Focus Sweep ---
-            if full:
-                span_um = foc_span
-                step_um = foc_step
-                if step_um <= 0:
-                    raise ValueError("Focus step must be > 0.")
-                num_steps = int(round(2 * span_um / step_um)) + 1
-                foc_um_list = np.linspace(foc_um - span_um, foc_um - span_um + (num_steps - 1) * step_um, num_steps)
-                foc_nm_list = foc_um_list * 1000.0
+                if self.custom_mask_data is None:
+                    messagebox.showerror("Error", "Please load a custom pattern file first.")
+                    return
+                cell_size = float(self.var_cell_size.get())
+                inv = self.var_invert.get()
+                mask, pixel_size = simulation.prepare_custom_mask(self.custom_mask_data, cell_size, inv, target_size=target_sim)
+                Nx, Ny = mask.shape[1], mask.shape[0]
+                self._draw_mask_preview(mask, pixel_size)
                 
-                if ori == "Both":
-                    c_list_v, p_list_v = simulation.run_through_focus(
-                        w, na, sig, wav, foc_nm_list, z_coeffs, num_lines, "V", Nx, Ny, pixel_size, num_source=num_points_sweep
-                    )
-                    c_list_h_res, p_list_h_res = simulation.run_through_focus(
-                        w, na, sig, wav, foc_nm_list, z_coeffs, num_lines, "H", Nx, Ny, pixel_size, num_source=num_points_sweep
-                    )
-                    c_list = c_list_v
-                    p_list = p_list_v
-                    c_list_h = c_list_h_res
-                    p_list_h = p_list_h_res
-                else:
-                    c_list, p_list = simulation.run_through_focus(
-                        w, na, sig, wav, foc_nm_list, z_coeffs, num_lines, ori, Nx, Ny, pixel_size, num_source=num_points_sweep
-                    )
-                
-                self.current_foc_list = foc_um_list
-                self.current_c_list = c_list
-                self.current_p_list = p_list
+            self.status_var.set("Running simulation... please wait.")
+            self.update()
             
-            # Plot
-            self._update_plots(self.current_1d[0], self.current_1d[1], foc_um, self.current_contrast, foc_um_list, c_list, p_list, w, num_lines, ori, full, c_list_h, p_list_h)
+            img = simulation.simulate_image(mask, na, sig, wav, foc_nm, z_coeffs, pixel_size, source_points=src_single)
+            
+            self.current_img = img
+            w_um = Nx * pixel_size / 1000.0
+            h_um = Ny * pixel_size / 1000.0
+            self.current_extent = [-w_um/2, w_um/2, -h_um/2, h_um/2]
+            
+            self.ax_2d.clear()
+            self.ax_2d.imshow(self.current_img, extent=self.current_extent, origin='lower', cmap='viridis')
+            self.ax_2d.set_title(f"2D Aerial Image (Focus = {foc_um:.3f} um)", fontsize=11)
+            self.ax_2d.set_xlabel("X (um)", fontsize=10)
+            self.ax_2d.set_ylabel("Y (um)", fontsize=10)
+            
+            self._init_slice_line()
+            self._draw_1d_profile()
             self.status_var.set("Simulation completed.")
             
         except Exception as e:
             messagebox.showerror("Simulation Error", str(e))
             self.status_var.set("Error occurred.")
+
+    def _init_slice_line(self):
+        if self.current_img is None: return
+        if self.slice_line:
+            try:
+                self.slice_line.remove()
+            except ValueError: pass
+            self.slice_line = None
             
-    def _update_plots(self, x, prof, f_user, c_user, f_list, c_list, p_list, w, num_lines, ori, full_update=True, c_list_h=None, p_list_h=None):
-        # Convert base units (nm) to (um) for plots 1 and 4
-        x_um = x / 1000.0
-        w_um = w / 1000.0
-        extent_um = [e / 1000.0 for e in self.current_extent]
-        limit_um = 1.8 * num_lines * w_um
+        xmin, xmax, ymin, ymax = self.current_extent
+        if self.var_slice_dir.get() == "X":
+            y_mid = (ymax + ymin) / 2
+            self.slice_pos_y = self.current_img.shape[0] // 2
+            self.slice_line, = self.ax_2d.plot([xmin, xmax], [y_mid, y_mid], color='red', marker='^', linestyle='--', linewidth=1.5, markevery=[0,-1])
+        else:
+            x_mid = (xmax + xmin) / 2
+            self.slice_pos_x = self.current_img.shape[1] // 2
+            self.slice_line, = self.ax_2d.plot([x_mid, x_mid], [ymin, ymax], color='blue', marker='>', linestyle='--', linewidth=1.5, markevery=[0,-1])
+
+    def _update_slice_dir(self):
+        if self.current_img is None: return
+        self._init_slice_line()
+        self.canvas_plot.draw_idle()
+        self._draw_1d_profile()
+
+    def _on_press(self, event):
+        if event.inaxes != self.ax_2d or self.current_img is None: return
+        self.dragging_slice = True
+        self._update_slice_position(event.xdata, event.ydata)
         
-        # 1. 1D Profile (Only shows Primary when Both, which is V)
-        self.ax1.clear()
-        self.ax1.plot(x_um, prof, 'b-', label='Aerial Image (V)' if ori == 'Both' else 'Aerial Image')
-        self.ax1.set_title(f"1D Profile (Focus = {f_user:.3f} um)", fontsize=11)
-        self.ax1.set_xlabel("Position (um)", fontsize=10)
-        self.ax1.set_ylabel("Intensity (a.u.)", fontsize=10)
-        self.ax1.grid(True)
-        self.ax1.set_xlim([-limit_um, limit_um])
-        self.ax1.legend(fontsize=9)
-        self.ax1.tick_params(axis='both', which='major', labelsize=9)
+    def _on_motion(self, event):
+        if not self.dragging_slice or event.inaxes != self.ax_2d: return
+        self._update_slice_position(event.xdata, event.ydata)
         
-        # 0. 2D Profile (Only shows Primary when Both, which is V)
-        self.ax4.clear()
-        im = self.ax4.imshow(self.current_img, extent=extent_um, origin='lower', cmap='viridis')
-        self.ax4.set_title(f"2D Aerial Image (V)" if ori == 'Both' else "2D Aerial Image", fontsize=11)
-        self.ax4.set_xlabel("X (um)", fontsize=10)
-        self.ax4.set_ylabel("Y (um)", fontsize=10)
-        self.ax4.set_xlim([-limit_um, limit_um])
-        self.ax4.set_ylim([-limit_um, limit_um])
-        self.ax4.set_aspect('equal')
-        self.ax4.tick_params(axis='both', which='major', labelsize=9)
+    def _on_release(self, event):
+        self.dragging_slice = False
         
-        if full_update:
-            # 2. Contrast Curve
-            self.ax2.clear()
-            if ori == 'Both':
-                self.ax2.plot(f_list, c_list, 'b-o', label='V Contrast')
-                self.ax2.plot(f_user, c_user["V"], 'b*', markersize=12, label='V Current Focus')
-                self.ax2.plot(f_list, c_list_h, 'r-s', label='H Contrast')
-                self.ax2.plot(f_user, c_user["H"], 'r*', markersize=12, label='H Current Focus')
-            else:
-                self.ax2.plot(f_list, c_list, 'k-o', label='Contrast Curve')
-                self.ax2.plot(f_user, c_user, 'r*', markersize=12, label='Current Focus')
-            
-            self.ax2.set_title("Through-Focus Contrast", fontsize=12)
-            self.ax2.set_xlabel("Focus (um)", fontsize=11)
-            self.ax2.set_ylabel("Contrast", fontsize=11)
-            self.ax2.grid(True)
-            self.ax2.legend(fontsize=10)
-            self.ax2.tick_params(axis='both', which='major', labelsize=10)
-            
-            # 3. Heatmap
-            # Remove previous colorbar if exists
-            if self.cbar_ax is not None:
-                self.cbar_ax.remove()
-                self.cbar_ax = None
+    def _update_slice_position(self, x_um, y_um):
+        if self.current_extent is None: return
+        xmin, xmax, ymin, ymax = self.current_extent
+        
+        x_um = max(xmin, min(xmax, x_um))
+        y_um = max(ymin, min(ymax, y_um))
+        
+        Nx = self.current_img.shape[1]
+        Ny = self.current_img.shape[0]
+        
+        px = int((x_um - xmin) / (xmax - xmin) * (Nx - 1))
+        py = int((y_um - ymin) / (ymax - ymin) * (Ny - 1))
+        
+        if self.var_slice_dir.get() == "X":
+            self.slice_pos_y = py
+            actual_y = ymin + py * (ymax - ymin) / max(1, (Ny - 1))
+            if self.slice_line:
+                self.slice_line.set_ydata([actual_y, actual_y])
+        else:
+            self.slice_pos_x = px
+            actual_x = xmin + px * (xmax - xmin) / max(1, (Nx - 1))
+            if self.slice_line:
+                self.slice_line.set_xdata([actual_x, actual_x])
                 
-            self.ax3.clear()
-            # If standard heatmap (V or H only)
-            cmap = matplotlib.colormaps['RdYlGn_r']
-            X_mesh, Y_mesh = np.meshgrid(x_um, f_list)
-            
-            if ori == "Both":
-                # Splitting ax3 into two using gridspec isn't easy here, so let's plot side-by-side using ax3's axes space
-                # We can draw two pcolormeshes on the same axes if we shift the X_mesh.
-                # Since Position ranges from -limit to +limit, we can shift them
-                # Let's shift V to left side [-limit * 2, 0] and H to right side [0, limit * 2] roughly
-                gap = limit_um * 0.2
-                shift_v = limit_um + gap
-                shift_h = limit_um + gap
-                
-                # Plot V shifted left
-                pcm = self.ax3.pcolormesh(X_mesh - shift_v, Y_mesh, p_list, cmap=cmap, shading='auto')
-                # Plot H shifted right
-                self.ax3.pcolormesh(X_mesh + shift_h, Y_mesh, p_list_h, cmap=cmap, shading='auto')
-                
-                self.ax3.set_title("Through-Focus Intensity Heatmap (V <<   ||   >> H)", fontsize=12)
-                self.ax3.set_xlabel("Position (shifted)", fontsize=11)
-                self.ax3.set_ylabel("Focus (um)", fontsize=11)
-                self.ax3.set_xlim([-(limit_um + gap * 2 + limit_um), (limit_um + gap * 2 + limit_um)])
-            else:
-                pcm = self.ax3.pcolormesh(X_mesh, Y_mesh, p_list, cmap=cmap, shading='auto')
-                self.ax3.set_title("Through-Focus Intensity Heatmap", fontsize=12)
-                self.ax3.set_xlabel("Position (um)", fontsize=11)
-                self.ax3.set_ylabel("Focus (um)", fontsize=11)
-                self.ax3.set_xlim([-limit_um, limit_um])
-                
-            self.ax3.tick_params(axis='both', which='major', labelsize=10)
-            
-            from mpl_toolkits.axes_grid1 import make_axes_locatable
-            divider = make_axes_locatable(self.ax3)
-            self.cbar_ax = divider.append_axes("right", size="5%", pad=0.1)
-            self.cbar = self.fig.colorbar(pcm, cax=self.cbar_ax, orientation='vertical', label='Intensity')
+        self.canvas_plot.draw_idle()
+        self._draw_1d_profile()
+
+    def _draw_1d_profile(self):
+        if self.current_img is None: return
+        self.ax_1d.clear()
         
-        self.fig.tight_layout(pad=3.0)
-        self.canvas_plot.draw()
+        xmin, xmax, ymin, ymax = self.current_extent
+        Nx = self.current_img.shape[1]
+        Ny = self.current_img.shape[0]
+        x_axis_um = np.linspace(xmin, xmax, Nx)
+        y_axis_um = np.linspace(ymin, ymax, Ny)
         
+        if self.var_slice_dir.get() == "X":
+            prof = self.current_img[self.slice_pos_y, :]
+            axis = x_axis_um
+            xlabel = "X Position (um)"
+            title = f"Horizontal Slice (Y={y_axis_um[self.slice_pos_y]:.3f} um)"
+            color = 'red'
+        else:
+            prof = self.current_img[:, self.slice_pos_x]
+            axis = y_axis_um
+            xlabel = "Y Position (um)"
+            title = f"Vertical Slice (X={x_axis_um[self.slice_pos_x]:.3f} um)"
+            color = 'blue'
+            
+        self.ax_1d.plot(axis, prof, color=color, linestyle='-')
+        self.ax_1d.set_title(title, fontsize=11)
+        self.ax_1d.set_xlabel(xlabel, fontsize=10)
+        self.ax_1d.set_ylabel("Intensity (a.u.)", fontsize=10)
+        self.ax_1d.grid(True)
+        self.ax_1d.tick_params(axis='both', which='major', labelsize=9)
+        if self.var_slice_dir.get() == "X":
+            self.ax_1d.set_xlim([xmin, xmax])
+        else:
+            self.ax_1d.set_xlim([ymin, ymax])
+        self.canvas_plot.draw_idle()
+
     def export_csv(self):
-        if self.current_1d is None or self.current_foc_list is None:
+        if self.current_img is None:
             messagebox.showwarning("No Data", "Please run a simulation first!")
             return
             
@@ -390,59 +426,78 @@ class PartialCoherenceApp(tk.Tk):
         dlg.title("Select Data to Export")
         dlg.geometry("300x200")
         
+        var_mask = tk.BooleanVar(value=True)
+        var_2d = tk.BooleanVar(value=True)
         var_1d = tk.BooleanVar(value=True)
-        var_c = tk.BooleanVar(value=True)
-        var_h = tk.BooleanVar(value=True)
         
-        ttk.Checkbutton(dlg, text="1D Image Profile", variable=var_1d).pack(anchor=tk.W, padx=20, pady=5)
-        ttk.Checkbutton(dlg, text="Through-Focus Contrast", variable=var_c).pack(anchor=tk.W, padx=20, pady=5)
-        ttk.Checkbutton(dlg, text="Through-Focus Heatmap", variable=var_h).pack(anchor=tk.W, padx=20, pady=5)
+        ttk.Checkbutton(dlg, text="1. Original Mask (0=Block, 1=Pass)", variable=var_mask).pack(anchor=tk.W, padx=20, pady=5)
+        ttk.Checkbutton(dlg, text="2. Aerial Image (2D)", variable=var_2d).pack(anchor=tk.W, padx=20, pady=5)
+        ttk.Checkbutton(dlg, text="3. 1D Slice Profile", variable=var_1d).pack(anchor=tk.W, padx=20, pady=5)
         
         def on_export():
             dlg.destroy()
-            if not (var_1d.get() or var_c.get() or var_h.get()):
+            if not (var_1d.get() or var_2d.get() or var_mask.get()):
                 return
-            
+                
             filepath = filedialog.asksaveasfilename(
                 defaultextension=".csv",
                 filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
-                title="Export Simulation Data"
+                title="Export Data (Base Name)"
             )
-            if not filepath:
-                return
-                
+            if not filepath: return
+            
             try:
-                with open(filepath, 'w', newline='') as f:
-                    writer = csv.writer(f)
-                    x_axis, prof = self.current_1d
-                    
-                    if var_1d.get():
-                        writer.writerow(["--- 1D Image Profile ---"])
-                        writer.writerow(["Position (nm)", "Intensity (a.u.)"])
-                        for xx, pp in zip(x_axis, prof):
-                            writer.writerow([xx, pp])
-                        writer.writerow([])
-                        
-                    if var_c.get():
-                        writer.writerow(["--- Through-Focus Contrast ---"])
-                        writer.writerow(["Focus (um)", "Contrast"])
-                        for ff, cc in zip(self.current_foc_list, self.current_c_list):
-                            writer.writerow([ff, cc])
-                        writer.writerow([])
-                        
-                    if var_h.get():
-                        writer.writerow(["--- Through-Focus Heatmap ---"])
-                        writer.writerow(["Focus (um) \\ Position (nm)"] + list(x_axis))
-                        for i, ff in enumerate(self.current_foc_list):
-                            writer.writerow([ff] + list(self.current_p_list[i]))
-                        writer.writerow([])
-                        
-                self.status_var.set(f"Successfully exported data to CSV.")
-                messagebox.showinfo("Export Successful", f"Data saved to {filepath}")
+                base, ext = os.path.splitext(filepath)
+                
+                xmin, xmax, ymin, ymax = self.current_extent
+                Nx = self.current_img.shape[1]
+                Ny = self.current_img.shape[0]
+                x_axis_um = np.linspace(xmin, xmax, Nx)
+                y_axis_um = np.linspace(ymin, ymax, Ny)
+                
+                # 1. Export Mask
+                if var_mask.get() and self.current_mask is not None:
+                    mask_path = f"{base}_mask{ext}"
+                    with open(mask_path, 'w', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["--- Mask File ---"])
+                        writer.writerow(["Row(y) \\ Col(x)"] + list(x_axis_um))
+                        for i, yy in enumerate(y_axis_um):
+                            writer.writerow([yy] + list(self.current_mask[i, :]))
+                            
+                # 2. Export 2D Aerial Image
+                if var_2d.get():
+                    img2d_path = f"{base}_2D_image{ext}"
+                    with open(img2d_path, 'w', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["--- 2D Aerial Image ---"])
+                        writer.writerow(["Row(y) \\ Col(x)"] + list(x_axis_um))
+                        for i, yy in enumerate(y_axis_um):
+                            writer.writerow([yy] + list(self.current_img[i, :]))
+                            
+                # 3. Export 1D Slice
+                if var_1d.get():
+                    prof_path = f"{base}_1D_profile{ext}"
+                    with open(prof_path, 'w', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["--- 1D Slice Profile ---"])
+                        if self.var_slice_dir.get() == "X":
+                            writer.writerow([f"Slice along Y = {y_axis_um[self.slice_pos_y]:.5f} um"])
+                            writer.writerow(["X Position (um)", "Intensity (a.u.)"])
+                            for xx, pp in zip(x_axis_um, self.current_img[self.slice_pos_y, :]):
+                                writer.writerow([xx, pp])
+                        else:
+                            writer.writerow([f"Slice along X = {x_axis_um[self.slice_pos_x]:.5f} um"])
+                            writer.writerow(["Y Position (um)", "Intensity (a.u.)"])
+                            for yy, pp in zip(y_axis_um, self.current_img[:, self.slice_pos_x]):
+                                writer.writerow([yy, pp])
+                                
+                self.status_var.set("Successfully exported data to CSV files.")
+                messagebox.showinfo("Export Successful", "Data saved successfully with prefix:\n" + base)
             except Exception as e:
                 messagebox.showerror("Export Error", f"Failed to save CSV:\n{str(e)}")
 
-        ttk.Button(dlg, text="Export", command=on_export).pack(pady=20)
+        ttk.Button(dlg, text="Export Selected", command=on_export).pack(pady=20)
 
 if __name__ == "__main__":
     app = PartialCoherenceApp()

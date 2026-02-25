@@ -1,5 +1,8 @@
 import numpy as np
 import zernike
+import os
+import csv
+from PIL import Image
 
 def generate_mask(Nx, Ny, pixel_size, line_width_nm, num_lines=5, orientation='V'):
     """
@@ -39,7 +42,79 @@ def generate_mask(Nx, Ny, pixel_size, line_width_nm, num_lines=5, orientation='V
             
     return mask
 
+def load_custom_pattern(filepath):
+    """
+    Load a 2D pattern from CSV, DAT, or BMP file.
+    Returns a numpy array of 0s and 1s.
+    """
+    ext = os.path.splitext(filepath)[1].lower()
+    
+    if ext == '.csv':
+        # Try reading as comma-separated values
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            data = []
+            for row in reader:
+                # Filter out empty strings which might happen at trailing commas
+                r = [float(x) for x in row if x.strip() != '']
+                if r:
+                    data.append(r)
+        return np.flipud(np.array(data))
+        
+    elif ext == '.dat':
+        # Try numpy loadtxt (handles space or tab separated)
+        try:
+            arr = np.loadtxt(filepath, delimiter=',')
+        except ValueError:
+            arr = np.loadtxt(filepath)
+        return np.flipud(arr)
+            
+    elif ext == '.bmp':
+        # Load image, convert to grayscale, then threshold
+        img = Image.open(filepath).convert('L')
+        img_arr = np.array(img)
+        # Threshold: assume typical 0-255 range, split at 127
+        arr = (img_arr > 127).astype(float)
+        return np.flipud(arr)
+        
+    else:
+        raise ValueError(f"Unsupported file format: {ext}")
+
+def prepare_custom_mask(data, cell_size_nm, invert=False, target_size=512):
+    """
+    Prepares the mask for simulation.
+    Default: 0 in data = 1.0 (pass), 1 in data = 0.0 (block).
+    If invert is True: 0 -> 0.0 (block), 1 -> 1.0 (pass).
+    Upsamples the data to match roughly the target_size for FFT stability.
+    Returns (mask_array, pixel_size_nm)
+    """
+    # 1. Apply rules: standard is 0->1.0 (pass), 1->0.0 (block)
+    # Threshold at 0.5 to handle generic float inputs
+    bin_data = (data > 0.5)
+    
+    if invert:
+        # invert=True: 0->0.0, 1->1.0
+        mask_base = bin_data.astype(float)
+    else:
+        # invert=False: 0->1.0, 1->0.0
+        mask_base = (~bin_data).astype(float)
+        
+    # 2. Upsample
+    # Find scale factor to make the max dimension at least target_size
+    ny, nx = mask_base.shape
+    max_dim = max(nx, ny)
+    scale = max(1, target_size // max_dim)
+    
+    # Scale both dimensions using repeat (nearest neighbor scaling)
+    mask = np.repeat(np.repeat(mask_base, scale, axis=0), scale, axis=1)
+    
+    # physical size of one pixel in the scaled mask
+    pixel_size_nm = cell_size_nm / scale
+    
+    return mask, pixel_size_nm
+
 def get_source_points(NA, sigma, lambda_nm, num_points=100):
+
     """
     Generate a uniform grid of source points (fx, fy) within the illumination pupil.
     """
