@@ -113,11 +113,12 @@ def prepare_custom_mask(data, cell_size_nm, invert=False, target_size=512):
     
     return mask, pixel_size_nm
 
-def get_source_points(NA, sigma, lambda_nm, num_points=100, shape='Top-hat'):
+def get_source_points(NA, sigma, lambda_nm, num_points=100, shape='Top-hat', sigma_gauss=1.0):
     """
     Generate a grid of source points (fx, fy, weight) within the illumination pupil.
     
     shape: 'Top-hat' or 'Gaussian'
+    sigma_gauss: 1/sigma parameter for Gaussian (Default=1.0 means 13.5% at Rs)
     """
     if sigma == 0:
         return np.array([[0.0, 0.0, 1.0]])
@@ -142,12 +143,9 @@ def get_source_points(NA, sigma, lambda_nm, num_points=100, shape='Top-hat'):
     r2 = r2[valid]
     
     if shape == 'Gaussian':
-        # Gaussian weight: exp(-r^2 / (2 * sigma_p^2))
-        # sigma_p is the standard deviation in frequency units.
-        # We can map the user's sigma to the standard deviation.
-        # Here we assume user_sigma (sigma) is the standard deviation.
-        sigma_p = Rs
-        weights = np.exp(-r2 / (2 * (sigma_p/2)**2)) # Drops to roughly 13% at the edge of sigma
+        # Gaussian weight: exp(-2 * (r / (Rs * sigma_gauss))^2)
+        # At r = Rs, if sigma_gauss = 1.0, weight = exp(-2) ~ 0.135
+        weights = np.exp(-2 * (r2 / (Rs * sigma_gauss)**2))
     else:
         weights = np.ones_like(sx)
         
@@ -261,11 +259,11 @@ def calculate_contrast(image, line_width_nm, pixel_size_nm, orientation='V'):
         return 0.0
     return (I_max - I_min) / (I_max + I_min)
 
-def sweep_focus(mask, NA, sigma, lambda_nm, focus_list, zernike_coeffs, pixel_size_nm, orientation='V', num_source=100):
+def sweep_focus(mask, NA, sigma, lambda_nm, focus_list, zernike_coeffs, pixel_size_nm, orientation='V', num_source=100, shape='Top-hat', sigma_gauss=1.0):
     """
     Sweep through a list of focus values and return the contrast at each focus.
     """
-    source_points = get_source_points(NA, sigma, lambda_nm, num_points=num_source)
+    source_points = get_source_points(NA, sigma, lambda_nm, num_points=num_source, shape=shape, sigma_gauss=sigma_gauss)
     contrasts = []
     
     for f in focus_list:
@@ -274,9 +272,9 @@ def sweep_focus(mask, NA, sigma, lambda_nm, focus_list, zernike_coeffs, pixel_si
         # Note: actually we need to pass line_width_nm. Let's fix loop to accept it as param.
     return contrasts
 
-def run_through_focus(line_width_nm, NA, sigma, lambda_nm, focus_list, zernike_coeffs, num_lines=5, orientation='V', Nx=512, Ny=512, pixel_size_nm=2.0, num_source=100):
+def run_through_focus(line_width_nm, NA, sigma, lambda_nm, focus_list, zernike_coeffs, num_lines=5, orientation='V', Nx=512, Ny=512, pixel_size_nm=2.0, num_source=100, shape='Top-hat', sigma_gauss=1.0):
     mask = generate_mask(Nx, Ny, pixel_size_nm, line_width_nm, num_lines, orientation)
-    source_points = get_source_points(NA, sigma, lambda_nm, num_points=num_source)
+    source_points = get_source_points(NA, sigma, lambda_nm, num_points=num_source, shape=shape, sigma_gauss=sigma_gauss)
     
     contrasts = []
     profiles = []
