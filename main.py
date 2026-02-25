@@ -75,9 +75,13 @@ class PartialCoherenceApp(tk.Tk):
         self.var_foc = tk.StringVar(value="0.0")
         ttk.Entry(opt_frame, textvariable=self.var_foc, width=10).grid(row=3, column=1, padx=5, pady=2)
         
-        ttk.Label(opt_frame, text="Precision:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(opt_frame, text="Source Profile:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+        self.var_src_shape = tk.StringVar(value="Top-hat")
+        ttk.OptionMenu(opt_frame, self.var_src_shape, "Top-hat", "Top-hat", "Gaussian").grid(row=4, column=1, sticky=tk.W, padx=5, pady=2)
+
+        ttk.Label(opt_frame, text="Precision:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=2)
         prec_frame = ttk.Frame(opt_frame)
-        prec_frame.grid(row=4, column=1, sticky=tk.W)
+        prec_frame.grid(row=5, column=1, sticky=tk.W)
         self.var_prec = tk.StringVar(value="Fast")
         ttk.Radiobutton(prec_frame, text="Fast", variable=self.var_prec, value="Fast").pack(side=tk.LEFT)
         ttk.Radiobutton(prec_frame, text="High", variable=self.var_prec, value="High").pack(side=tk.LEFT)
@@ -259,6 +263,7 @@ class PartialCoherenceApp(tk.Tk):
             sig = float(self.var_sig.get())
             foc_um = float(self.var_foc.get())
             prec = self.var_prec.get()
+            src_shape = self.var_src_shape.get()
             z_coeffs = np.array([float(v.get()) for v in self.zernike_entries])
             
             pat_type = self.var_pat_type.get()
@@ -274,7 +279,7 @@ class PartialCoherenceApp(tk.Tk):
                 num_points_single = 400
                 target_sim = 2048
                 
-            src_single = simulation.get_source_points(na, sig, wav, num_points=num_points_single)
+            src_single = simulation.get_source_points(na, sig, wav, num_points=num_points_single, shape=src_shape)
             
             if pat_type == "L&S":
                 w = float(self.var_w.get())

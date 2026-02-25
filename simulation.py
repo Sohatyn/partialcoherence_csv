@@ -113,16 +113,21 @@ def prepare_custom_mask(data, cell_size_nm, invert=False, target_size=512):
     
     return mask, pixel_size_nm
 
-def get_source_points(NA, sigma, lambda_nm, num_points=100):
-
+def get_source_points(NA, sigma, lambda_nm, num_points=100, shape='Top-hat'):
     """
-    Generate a uniform grid of source points (fx, fy) within the illumination pupil.
+    Generate a grid of source points (fx, fy, weight) within the illumination pupil.
+    
+    shape: 'Top-hat' or 'Gaussian'
     """
     if sigma == 0:
-        return np.array([[0.0, 0.0]])
+        return np.array([[0.0, 0.0, 1.0]])
         
     Rs = sigma * NA / lambda_nm
-    # Calculate grid size to roughly achieve num_points inside the circle
+    
+    # For Gaussian, we might want to sample slightly further than Rs if sigma represents std dev,
+    # but in lithography terms, sigma usually defines the integration boundary.
+    # We will sample within Rs.
+    
     N = int(np.sqrt(num_points * 4 / np.pi))
     if N < 2: N = 2
     
@@ -130,11 +135,23 @@ def get_source_points(NA, sigma, lambda_nm, num_points=100):
     sx, sy = np.meshgrid(s_1d, s_1d)
     
     # Keep points inside the circle
-    valid = (sx**2 + sy**2) <= Rs**2
+    r2 = sx**2 + sy**2
+    valid = r2 <= Rs**2
     sx = sx[valid]
     sy = sy[valid]
+    r2 = r2[valid]
     
-    return np.column_stack((sx, sy))
+    if shape == 'Gaussian':
+        # Gaussian weight: exp(-r^2 / (2 * sigma_p^2))
+        # sigma_p is the standard deviation in frequency units.
+        # We can map the user's sigma to the standard deviation.
+        # Here we assume user_sigma (sigma) is the standard deviation.
+        sigma_p = Rs
+        weights = np.exp(-r2 / (2 * (sigma_p/2)**2)) # Drops to roughly 13% at the edge of sigma
+    else:
+        weights = np.ones_like(sx)
+        
+    return np.column_stack((sx, sy, weights))
 
 def simulate_image(mask, NA, sigma, lambda_nm, focus_nm, zernike_coeffs, pixel_size_nm, source_points=None):
     """
@@ -179,11 +196,12 @@ def simulate_image(mask, NA, sigma, lambda_nm, focus_nm, zernike_coeffs, pixel_s
     
     # Illumination Source
     if source_points is None:
-        source_points = get_source_points(NA, sigma, lambda_nm, 100)
+        source_points = get_source_points(NA, sigma, lambda_nm, 100, shape='Top-hat')
     
     intensity = np.zeros((Ny, Nx), dtype=float)
+    total_weight = 0.0
     
-    for sx, sy in source_points:
+    for sx, sy, w in source_points:
         # Incident wave tilts the mask field
         mask_tilted = mask * np.exp(1j * 2 * np.pi * (sx * X + sy * Y))
         
@@ -196,10 +214,11 @@ def simulate_image(mask, NA, sigma, lambda_nm, focus_nm, zernike_coeffs, pixel_s
         # Inverse FFT to get image field
         E_img = np.fft.ifft2(E_img_f)
         
-        # Add to total intensity (incoherent sum of coherent images)
-        intensity += np.abs(E_img)**2
+        # Add to total intensity (incoherent sum of weighted coherent images)
+        intensity += w * np.abs(E_img)**2
+        total_weight += w
         
-    return intensity / len(source_points)
+    return intensity / total_weight
 
 def calculate_contrast(image, line_width_nm, pixel_size_nm, orientation='V'):
     """
