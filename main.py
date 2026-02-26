@@ -102,23 +102,51 @@ class PartialCoherenceApp(tk.Tk):
         ttk.Radiobutton(f1, text="Custom File", variable=self.var_pat_type, value="Custom", command=self._toggle_pat_type).pack(side=tk.LEFT, padx=10)
         
         self.frame_ls = ttk.Frame(pat_source_frame)
-        ttk.Label(self.frame_ls, text="Width(nm):").pack(side=tk.LEFT)
-        self.var_w = tk.StringVar(value="1500.0")
-        we = ttk.Entry(self.frame_ls, textvariable=self.var_w, width=6)
-        we.pack(side=tk.LEFT, padx=2)
-        we.bind("<FocusOut>", lambda e: self._update_preview())
-        we.bind("<Return>", lambda e: self._update_preview())
         
-        ttk.Label(self.frame_ls, text="Lines:").pack(side=tk.LEFT, padx=(5,0))
+        # New Feature Checkboxes
+        f_ls_opts = ttk.Frame(self.frame_ls)
+        f_ls_opts.pack(fill=tk.X, padx=5, pady=(0, 2))
+        
+        self.var_asym = tk.BooleanVar(value=False)
+        ttk.Checkbutton(f_ls_opts, text="Asymmetric L&S", variable=self.var_asym, command=self._toggle_asym).pack(side=tk.LEFT)
+        
+        self.var_invert_ls = tk.BooleanVar(value=False)
+        ttk.Checkbutton(f_ls_opts, text="Invert Dark/Light", variable=self.var_invert_ls, command=self._update_preview).pack(side=tk.LEFT, padx=10)
+        
+        f_ls_params = ttk.Frame(self.frame_ls)
+        f_ls_params.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(f_ls_params, text="L(nm):").grid(row=0, column=0, sticky=tk.E, padx=2)
+        self.var_w = tk.StringVar(value="1500.0")
+        self.var_w.trace_add("write", self._calc_pitch)
+        self.we = ttk.Entry(f_ls_params, textvariable=self.var_w, width=6)
+        self.we.grid(row=0, column=1, sticky=tk.W, padx=2)
+        self.we.bind("<FocusOut>", lambda e: self._update_preview())
+        self.we.bind("<Return>", lambda e: self._update_preview())
+        
+        ttk.Label(f_ls_params, text="S(nm):").grid(row=0, column=2, sticky=tk.E, padx=(5, 2))
+        self.var_s = tk.StringVar(value="1500.0")
+        self.var_s.trace_add("write", self._calc_pitch)
+        self.se = ttk.Entry(f_ls_params, textvariable=self.var_s, width=6, state=tk.DISABLED)
+        self.se.grid(row=0, column=3, sticky=tk.W, padx=2)
+        self.se.bind("<FocusOut>", lambda e: self._update_preview())
+        self.se.bind("<Return>", lambda e: self._update_preview())
+        
+        ttk.Label(f_ls_params, text="Pitch:").grid(row=1, column=0, sticky=tk.E, padx=2, pady=(5, 0))
+        self.var_pitch = tk.StringVar(value="3000.0")
+        pe = ttk.Entry(f_ls_params, textvariable=self.var_pitch, width=8, state="readonly")
+        pe.grid(row=1, column=1, columnspan=3, sticky=tk.W, padx=2, pady=(5, 0))
+        
+        ttk.Label(f_ls_params, text="Lines:").grid(row=0, column=4, sticky=tk.E, padx=(5, 2))
         self.var_lines = tk.StringVar(value="5")
-        le = ttk.Entry(self.frame_ls, textvariable=self.var_lines, width=4)
-        le.pack(side=tk.LEFT, padx=2)
+        le = ttk.Entry(f_ls_params, textvariable=self.var_lines, width=4)
+        le.grid(row=0, column=5, sticky=tk.W, padx=2)
         le.bind("<FocusOut>", lambda e: self._update_preview())
         le.bind("<Return>", lambda e: self._update_preview())
         
-        ttk.Label(self.frame_ls, text="Ori:").pack(side=tk.LEFT, padx=(5,0))
+        ttk.Label(f_ls_params, text="Ori:").grid(row=1, column=4, sticky=tk.E, padx=(5, 2), pady=(5, 0))
         self.var_ori = tk.StringVar(value="V")
-        ttk.OptionMenu(self.frame_ls, self.var_ori, "V", "V", "H", command=self._update_preview).pack(side=tk.LEFT, padx=2)
+        ttk.OptionMenu(f_ls_params, self.var_ori, "V", "V", "H", command=self._update_preview).grid(row=1, column=5, sticky=tk.W, padx=2, pady=(5, 0))
         
         self.frame_custom = ttk.Frame(pat_source_frame)
         btn_browse = ttk.Button(self.frame_custom, text="Browse...", command=self._browse_custom)
@@ -183,12 +211,11 @@ class PartialCoherenceApp(tk.Tk):
         right_frame = ttk.Frame(main_pane)
         main_pane.add(right_frame, weight=3)
         
-        self.fig = Figure(figsize=(12, 5), dpi=100)
-        gs = self.fig.add_gridspec(1, 3, width_ratios=[1, 1, 1], wspace=0.3)
+        self.fig = Figure(figsize=(10, 8), dpi=100, layout="constrained")
+        gs = self.fig.add_gridspec(2, 2, height_ratios=[1.2, 1], width_ratios=[1, 1], wspace=0.3, hspace=0.4)
         self.ax_mask = self.fig.add_subplot(gs[0, 0])
         self.ax_2d = self.fig.add_subplot(gs[0, 1])
-        self.ax_1d = self.fig.add_subplot(gs[0, 2])
-        self.fig.tight_layout(pad=3.0)
+        self.ax_1d = self.fig.add_subplot(gs[1, :])
         
         self.canvas_plot = FigureCanvasTkAgg(self.fig, master=right_frame)
         self.canvas_plot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -208,6 +235,26 @@ class PartialCoherenceApp(tk.Tk):
             self.frame_ls.pack_forget()
             self.frame_custom.pack(fill=tk.X, padx=5, pady=2)
         self._update_preview()
+
+    def _toggle_asym(self):
+        if self.var_asym.get():
+            self.se.config(state=tk.NORMAL)
+        else:
+            self.se.config(state=tk.DISABLED)
+        self._calc_pitch()
+        self._update_preview()
+
+    def _calc_pitch(self, *args):
+        try:
+            w = float(self.var_w.get())
+            if self.var_asym.get():
+                s = float(self.var_s.get())
+            else:
+                s = w
+            pitch = w + s
+            self.var_pitch.set(f"{pitch:.1f}")
+        except ValueError:
+            self.var_pitch.set("Error")
 
     def _browse_custom(self):
         fp = filedialog.askopenfilename(filetypes=[("All Supported", "*.csv *.dat *.bmp"), ("CSV files", "*.csv"), ("DAT files", "*.dat"), ("BMP files", "*.bmp")])
@@ -229,12 +276,18 @@ class PartialCoherenceApp(tk.Tk):
         if self.var_pat_type.get() == "L&S":
             try:
                 w = float(self.var_w.get())
+                if self.var_asym.get():
+                    s = float(self.var_s.get())
+                else:
+                    s = w
+                inv_ls = self.var_invert_ls.get()
                 num_lines = int(self.var_lines.get())
                 ori = self.var_ori.get()
-                target_field_size = 4.0 * num_lines * w
+                # Target field size ~ 4 times the total width pattern
+                target_field_size = 4.0 * num_lines * (w + s) / 2.0
                 Nx, Ny = target_size, target_size
                 pixel_size = target_field_size / Nx
-                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, ori)
+                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, ori, space_width_nm=s, invert=inv_ls)
                 self.current_mask = mask
                 self._draw_mask_preview(mask, pixel_size)
             except Exception: pass
@@ -288,12 +341,17 @@ class PartialCoherenceApp(tk.Tk):
             
             if pat_type == "L&S":
                 w = float(self.var_w.get())
+                if self.var_asym.get():
+                    s = float(self.var_s.get())
+                else:
+                    s = w
+                inv_ls = self.var_invert_ls.get()
                 num_lines = int(self.var_lines.get())
                 ori = self.var_ori.get()
-                target_field_size = 4.0 * num_lines * w
+                target_field_size = 4.0 * num_lines * (w + s) / 2.0
                 Nx, Ny = target_sim, target_sim
                 pixel_size = target_field_size / Nx
-                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, ori)
+                mask = simulation.generate_mask(Nx, Ny, pixel_size, w, num_lines, ori, space_width_nm=s, invert=inv_ls)
                 self._draw_mask_preview(mask, pixel_size)
             else:
                 if self.custom_mask_data is None:

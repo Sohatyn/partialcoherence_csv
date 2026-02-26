@@ -4,41 +4,54 @@ import os
 import csv
 from PIL import Image
 
-def generate_mask(Nx, Ny, pixel_size, line_width_nm, num_lines=5, orientation='V'):
+def generate_mask(Nx, Ny, pixel_size, line_width_nm, num_lines=5, orientation='V', space_width_nm=None, invert=False):
     """
     Generate a 2D transmission mask of alternating dark lines and bright spaces.
-    Dark line = 0.0, Bright space = 1.0 (transparent background).
+    If invert=False (default): Dark line = 0.0, Bright space = 1.0 (transparent background).
+    If invert=True: Bright line = 1.0, Dark space = 0.0 (opaque background).
     """
-    mask = np.ones((Ny, Nx), dtype=float)
+    if space_width_nm is None:
+        space_width_nm = line_width_nm
+        
+    bg_val = 0.0 if invert else 1.0
+    line_val = 1.0 if invert else 0.0
+    
+    mask = np.full((Ny, Nx), bg_val, dtype=float)
     center_x = Nx // 2
     center_y = Ny // 2
     
-    # line width in pixels
+    # line width and space width in pixels
     lw_p = int(round(line_width_nm / pixel_size))
     if lw_p == 0:
         lw_p = 1
         
+    sw_p = int(round(space_width_nm / pixel_size))
+    if sw_p == 0:
+        sw_p = 1
+        
+    pitch_p = lw_p + sw_p
+        
     start_idx = -(num_lines // 2)
     end_idx = start_idx + num_lines
     
-    # Pitch = 2 * lw_p
+    # Calculate offset so that the middle line (index 0) is centered at center_x or center_y
     if orientation == 'V':
         for i in range(start_idx, end_idx):
-            cx = center_x + i * 2 * lw_p
+            cx = center_x + i * pitch_p
             start = cx - lw_p // 2
             end = start + lw_p
             # Make sure bounds are within array
             start = max(0, start)
             end = min(Nx, end)
-            mask[:, start:end] = 0.0
+            mask[:, start:end] = line_val
     else:  # Horizontal
         for i in range(start_idx, end_idx):
-            cy = center_y + i * 2 * lw_p
+            cy = center_y + i * pitch_p
             start = cy - lw_p // 2
             end = start + lw_p
             start = max(0, start)
             end = min(Ny, end)
-            mask[start:end, :] = 0.0
+            mask[start:end, :] = line_val
             
     return mask
 
@@ -218,15 +231,20 @@ def simulate_image(mask, NA, sigma, lambda_nm, focus_nm, zernike_coeffs, pixel_s
         
     return intensity / total_weight
 
-def calculate_contrast(image, line_width_nm, pixel_size_nm, orientation='V'):
+def calculate_contrast(image, line_width_nm, pixel_size_nm, orientation='V', space_width_nm=None):
     """
     Calculate the contrast at the center of the image.
     I_min is the minimum at the center line.
     I_max is the maximum strictly in the space between the center line and the adjacent line.
     """
+    if space_width_nm is None:
+        space_width_nm = line_width_nm
+        
     Ny, Nx = image.shape
     cy, cx = Ny // 2, Nx // 2
     lw_p = int(round(line_width_nm / pixel_size_nm))
+    sw_p = int(round(space_width_nm / pixel_size_nm))
+    pitch_p = lw_p + sw_p
     
     if orientation == 'V':
         profile = image[cy, :]
@@ -236,11 +254,11 @@ def calculate_contrast(image, line_width_nm, pixel_size_nm, orientation='V'):
         center_region = profile[start_c:end_c]
         I_min = np.min(center_region) if len(center_region) > 0 else profile[cx]
         
-        # Space strictly between center line and adjacent right line: [cx + lw_p/2, cx + 1.5*lw_p]
+        # Space strictly between center line and adjacent right line: [cx + lw_p/2, cx + lw_p/2 + sw_p]
         start_s = max(0, cx + lw_p//2)
-        end_s = min(Nx, cx + int(1.5 * lw_p) + 1)
+        end_s = min(Nx, cx + lw_p//2 + sw_p + 1)
         space_region = profile[start_s:end_s]
-        I_max = np.max(space_region) if len(space_region) > 0 else profile[cx + lw_p]
+        I_max = np.max(space_region) if len(space_region) > 0 else profile[min(Nx-1, cx + lw_p//2 + sw_p//2)]
     else:
         profile = image[:, cx]
         # Center line region
@@ -251,15 +269,15 @@ def calculate_contrast(image, line_width_nm, pixel_size_nm, orientation='V'):
         
         # Space strictly between center line and adjacent bottom line
         start_s = max(0, cy + lw_p//2)
-        end_s = min(Ny, cy + int(1.5 * lw_p) + 1)
+        end_s = min(Ny, cy + lw_p//2 + sw_p + 1)
         space_region = profile[start_s:end_s]
-        I_max = np.max(space_region) if len(space_region) > 0 else profile[cy + lw_p]
+        I_max = np.max(space_region) if len(space_region) > 0 else profile[min(Ny-1, cy + lw_p//2 + sw_p//2)]
         
     if I_max + I_min == 0:
         return 0.0
     return (I_max - I_min) / (I_max + I_min)
 
-def sweep_focus(mask, NA, sigma, lambda_nm, focus_list, zernike_coeffs, pixel_size_nm, orientation='V', num_source=100, shape='Top-hat', sigma_gauss=1.0):
+def sweep_focus(mask, NA, sigma, lambda_nm, focus_list, zernike_coeffs, pixel_size_nm, orientation='V', num_source=100, shape='Top-hat', sigma_gauss=1.0, line_width_nm=0, space_width_nm=None):
     """
     Sweep through a list of focus values and return the contrast at each focus.
     """
@@ -268,12 +286,12 @@ def sweep_focus(mask, NA, sigma, lambda_nm, focus_list, zernike_coeffs, pixel_si
     
     for f in focus_list:
         img = simulate_image(mask, NA, sigma, lambda_nm, f, zernike_coeffs, pixel_size_nm, source_points)
-        c = calculate_contrast(img, line_width_nm=0, pixel_size_nm=pixel_size_nm, orientation=orientation)
-        # Note: actually we need to pass line_width_nm. Let's fix loop to accept it as param.
+        c = calculate_contrast(img, line_width_nm=line_width_nm, pixel_size_nm=pixel_size_nm, orientation=orientation, space_width_nm=space_width_nm)
+        contrasts.append(c)
     return contrasts
 
-def run_through_focus(line_width_nm, NA, sigma, lambda_nm, focus_list, zernike_coeffs, num_lines=5, orientation='V', Nx=512, Ny=512, pixel_size_nm=2.0, num_source=100, shape='Top-hat', sigma_gauss=1.0):
-    mask = generate_mask(Nx, Ny, pixel_size_nm, line_width_nm, num_lines, orientation)
+def run_through_focus(line_width_nm, NA, sigma, lambda_nm, focus_list, zernike_coeffs, num_lines=5, orientation='V', Nx=512, Ny=512, pixel_size_nm=2.0, num_source=100, shape='Top-hat', sigma_gauss=1.0, space_width_nm=None, invert=False):
+    mask = generate_mask(Nx, Ny, pixel_size_nm, line_width_nm, num_lines, orientation, space_width_nm, invert)
     source_points = get_source_points(NA, sigma, lambda_nm, num_points=num_source, shape=shape, sigma_gauss=sigma_gauss)
     
     contrasts = []
@@ -282,7 +300,7 @@ def run_through_focus(line_width_nm, NA, sigma, lambda_nm, focus_list, zernike_c
     
     for f in focus_list:
         img = simulate_image(mask, NA, sigma, lambda_nm, f, zernike_coeffs, pixel_size_nm, source_points)
-        c = calculate_contrast(img, line_width_nm, pixel_size_nm, orientation)
+        c = calculate_contrast(img, line_width_nm, pixel_size_nm, orientation, space_width_nm)
         contrasts.append(c)
         if orientation == 'V':
             profiles.append(img[cy, :])
