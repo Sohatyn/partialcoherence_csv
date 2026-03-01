@@ -7,12 +7,11 @@ If you are curious about exposure devices, optics, or computational lithography,
 ## Features
 
 - **Interactive UI**: A Tkinter-based GUI for real-time parameter configuration, with Matplotlib visualizations.
-- **Customizable Optical Parameters**: Adjust Wavelength ($\lambda$), Lens NA, and Illumination coherence ($\sigma$).
-- **Mask Definition**: Simulate Line and Space (L&S) patterns with adjustable width, number of lines, and orientation (Vertical, Horizontal, or Both).
+- **Customizable Optical Parameters**: Adjust Wavelength ($\lambda$), Lens NA, Illumination coherence ($\sigma$), and Source Profile (Top-hat or Gaussian with adjustable $\sigma_{gauss}$).
+- **Mask Definition**: Simulate Line and Space (L&S) patterns with adjustable width, number of lines, and orientation (Vertical or Horizontal). Includes options for asymmetric L&S and Dark/Light inversion. Alternatively, load custom mask patterns from CSV/DAT/BMP files.
 - **Aberrations**: Full support for 36 standard Fringe Zernike Coefficients (in waves) for analyzing aberrations like Coma, Astigmatism, and Spherical.
-- **Through-Focus Sweep**: Simulate images through various focus steps to evaluate the depth of focus and contrast curves.
-- **Visualizations**: View 1D intensity profiles, 2D aerial images, through-focus contrast curves, and through-focus intensity heatmaps.
-- **Data Export**: Easily export the resulting 1D profiles, contrast curves, and heatmaps to CSV format.
+- **Visualizations**: View 2D aerial images at a specific focus, and interactively extract 1D intensity profiles (horizontal or vertical slices).
+- **Data Export**: Easily export the original mask, 2D aerial image, and selected 1D slice profile to CSV format.
 
 ## Principle of Partial Coherence Imaging
 
@@ -67,9 +66,13 @@ python main.py
 1. **Wavelength $\lambda$ (nm)**: Source illumination wavelength (e.g., 365.0 for i-line, 193.0 for ArF).
 2. **Lens NA**: Numerical Aperture of the objective lens.
 3. **Illumination $\sigma$**: Partial coherence factor of the illumination source (0 to 1).
-4. **Focus & Sweep**: Set the central focus position and perform a sweep over a defined range and step size.
-5. **L&S Width (nm)**: Width of the lines corresponding to your mask pattern.
-6. **Precision**: Choose between `Fast (Rough)` for quick explorations or `High (Slow)` for detailed, high-resolution rendering.
+4. **Focus (um)**: Set the evaluation focus position.
+5. **Source Profile**: Choose between `Top-hat` (uniform) and `Gaussian` illumination. For Gaussian, you can adjust the `Gaussian Sigma (1/σ)` parameter to control the decay rate.
+6. **Precision**: Choose between `Fast` (512x512 matrix), `High` (1024x1024), or `Very High` (2048x2048) for high-resolution rendering.
+
+### Pattern Source
+- **Line & Space (L&S)**: Specify L(nm), S(nm) for asymmetric settings, Lines, and Orientation (V/H). Use `Invert Dark/Light` to flip the clear and opaque regions.
+- **Custom File**: Browse and load your own pattern from `.csv`, `.dat`, or `.bmp` files.
 
 ### Zernike Coefficients
 Expand the bottom left section to input values (in waves) for up to 36 Fringe Zernike aberrations to see their impact on the aerial image and contrast. The simulator utilizes the standard 36 Fringe Zernike polynomials $Z_j(\rho, \theta)$, where $\rho$ is the normalized pupil radius and $\theta$ is the azimuthal angle.
@@ -115,10 +118,10 @@ Here are the details for the all 36 primary aberrations:
 | 35 | 9, -1 | Quaternary Coma Y | $(126\rho^9 - 280\rho^7 + 210\rho^5 - 60\rho^3 + 5\rho) \sin(\theta)$ |
 | 36 | 10, 0 | Quaternary Spherical | $252\rho^{10} - 630\rho^8 + 560\rho^6 - 210\rho^4 + 30\rho^2 - 1$ |
 
-### Simulation Modes
-- **Run Full Simulation**: Computes the through-focus calculations, providing heatmaps and contrast curves.
-- **Run 2D & Profile Only**: Computes only the specific focus position (faster, great for tuning).
-- **Export to CSV**: Saves the currently displayed simulation data to a CSV file.
+### Simulation Controls
+- **Run Simulation**: Computes the 2D aerial image at the specified focus. Clicking on the 2D image allows you to drag and place a cut-line to view the 1D intensity profile.
+- **1D Slice Controls**: Choose whether to take a `Horizontal Cut` (Parallel to X-Axis) or `Vertical Cut` (Parallel to Y-Axis).
+- **Export Profile to CSV**: Opens a dialog to select and save the Pattern Mask, 2D Aerial Image, and 1D Profile data to CSV files.
 
 ## Acknowledgements
 Thanks to the Antigravity system for the development experience.
